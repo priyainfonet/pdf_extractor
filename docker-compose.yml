@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pdfkit
+      POSTGRES_PASSWORD: pdfkit_dev_password
+      POSTGRES_DB: pdfkit
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdfkit"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://pdfkit:pdfkit_dev_password@postgres:5432/pdfkit
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE_TYPE: celery
+      STORAGE_TYPE: local
+      STORAGE_PATH: /app/storage
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-a-real-deployment}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      RESET_TOKEN_EXPIRE_MINUTES: 30
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      ENVIRONMENT: production
+      FILE_RETENTION_DAYS: 30
+      CLEANUP_INTERVAL_HOURS: 24
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5500/html/reset-password.html}
+    volumes:
+      - storage_data:/app/storage
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://pdfkit:pdfkit_dev_password@postgres:5432/pdfkit
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE_TYPE: celery
+      STORAGE_TYPE: local
+      STORAGE_PATH: /app/storage
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-a-real-deployment}
+      ENVIRONMENT: production
+    volumes:
+      - storage_data:/app/storage
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+
+volumes:
+  postgres_data:
+  storage_data:

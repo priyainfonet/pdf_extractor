@@ -1,0 +1,8 @@
+# Used by the Dockerfile — includes everything in requirements.txt PLUS
+# the Postgres driver and Celery/Redis, since the docker-compose stack
+# always uses those (unlike local dev, where they're optional).
+-r requirements.txt
+
+psycopg2-binary>=2.9.9
+celery>=5.4.0
+redis>=5.0.0
